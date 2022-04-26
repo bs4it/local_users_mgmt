@@ -1,7 +1,7 @@
 # variables:
 
-$IgnoredUsers = Get-Content -Path "D:\BS4IT\scripts\users_management\ignored_users.txt"
-$LoopServers = Get-Content -Path "D:\BS4IT\scripts\users_management\servers_list.txt"
+$IgnoredUsers = Get-Content -Path ".\ignored_users.txt"
+$LoopServers = Get-Content -Path ".\servers_list.txt"
 
 function ListUsers {
     $out = Get-LocalUser
@@ -212,6 +212,87 @@ function DeleteUser {
     }    
 }
 
+
+
+function CreateUsersOnNewServer {
+    $LocalUsers = Get-LocalUser | Where-Object { $IgnoredUsers -notcontains $_.name }
+    $errmsg = ""
+    do {
+        Clear-Host
+        Write-Host -ForegroundColor White -NoNewline "=========== "
+        Write-Host -ForegroundColor Green -NoNewline "Type the hostname or IP of a new server to create users on it"
+        Write-Host -ForegroundColor White " ==========="
+        Write-Host "To return to previous menu, type 'r' and hit ENTER"
+        Write-Host -ForegroundColor Yellow "The server must have POSH Core and SSH set accordingly."
+        $NewServer = (Read-Host -Prompt "Server").ToUpper()
+    } while (($NewServer.Length -eq 0))
+    #} while (($SelectedUser.Length -eq 0) -or -Not ($SelectedUser -in 1..$LocalUsers.Count) )
+
+    if ($NewServer -ne "r") {
+        #Testar SSH
+        Write-Host -NoNewline "Trying to connect to $NewServer ..."
+        $ssh_test = Invoke-Command -Hostname $NewServer -Command { Get-Host }
+        if ($ssh_test -ne $null) {
+            Write-Host -ForegroundColor Green " OK"
+            Write-Host ""
+            Write-Host -NoNewline "The Server "
+            Write-Host -NoNewline -ForegroundColor Cyan $ssh_test.PSComputerName.ToString()
+            Write-Host -NoNewline " is running PowerShell Version "
+            Write-Host -ForegroundColor Cyan $ssh_test.Version.ToString()
+            Write-Host ""
+            Write-Host -ForegroundColor Yellow "The following users will be created on $NewServer. If any of these already exist they will not be affected."
+            $script:ObjIndex = 0
+            $LocalUsers | Format-Table -Property @{name="ID";expression={$script:ObjIndex;$script:ObjIndex+=1}},Name,FullName,Description            
+            Write-Host -ForegroundColor Yellow -NoNewline "DO YOU WANT TO GO AHEAD ? (Y/N):"
+            $Confirmation = Read-Host
+            if ($Confirmation -eq "Y") {
+                # senha
+                do {
+                    Write-Host -ForegroundColor DarkYellow -NoNewline "Enter New Password (8 chars or more):"
+                    $NewUserPassword = Read-Host -AsSecureString
+                    Write-Host -ForegroundColor DarkYellow -NoNewline "Confirm New Password:"
+                    $NewUserPassword1 = Read-Host -AsSecureString
+                    $pwd1_text = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($NewUserPassword))
+                    $pwd2_text = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($NewUserPassword1))
+                    if (($pwd1_text -ne $pwd2_text) -or ($pwd1_text.Length -lt 8)) { Write-Host -ForegroundColor Red "Passwords did not match or have less than 8 chars, try again:" }
+                }
+                while (($pwd1_text -ne $pwd2_text) -or ($pwd1_text.Length -lt 8))
+                Write-Host "Passwords matched"
+                Start-Sleep -Seconds 1
+
+                Write-Host -ForegroundColor Yellow "Starting users creation on $NewServer"
+
+                $LocalUsers | ForEach-Object {
+                    $NewUsername = $_.Name
+                    $NewUserFullName = $_.FullName
+                    $NewUserDescription = $_.Description
+                    Write-Host -NoNewline -ForegroundColor White "Creating user "
+                    Write-Host -NoNewline -ForegroundColor Cyan $NewUsername
+                    Write-Host -NoNewline -ForegroundColor White " on server "
+                    Write-Host -ForegroundColor Cyan $NewServer
+                    $NewUser = Invoke-Command -Hostname $NewServer -Command { New-LocalUser $using:NewUsername -Password $using:NewUserPassword -FullName $using:NewUserFullName -Description $using:NewUserDescription -PasswordNeverExpires:$true -AccountNeverExpires:$true | Add-LocalGroupMember -Group "Administrators" }
+                }
+                Write-Host ""
+                Write-Host "Operation completed."
+                Write-Host -NoNewline -ForegroundColor Red "IMPORTANT NOTE: "
+                Write-Host -ForegroundColor Yellow "Please be sure to include $NewServer to the 'servers_list.txt' file."
+                Write-Host ""
+                Read-Host -Prompt "Press ENTER to return to main menu"
+            }
+
+        }
+        else {
+            Write-Host ""
+            Write-Host -ForegroundColor Yellow "SSH Connecion failed. Check hostname or IP and if the server is prepared (SSHD + POSH)"
+            Write-Host ""
+            Read-Host -Prompt "Press ENTER to return to main menu"
+        }
+    } 
+    Write-Host -ForegroundColor White "Returning to main menu."
+    Start-Sleep -Milliseconds 750  
+}
+
+
 function Show-Menu
 {
     param (
@@ -240,12 +321,18 @@ do
      {
          '1' {
             ListUsers
-         } '2' {
+         }
+         '2' {
             CreateUser
-         } '3' {
+         }
+         '3' {
             ResetUserPassword
-         } '4' {
+         }
+         '4' {
             DeleteUser
+         }
+         '5' {
+            CreateUsersOnNewServer
          }
      }
     #  pause

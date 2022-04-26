@@ -2,3 +2,7 @@ Administrator
 DefaultAccount
 Guest
 WDAGUtilityAccount
+veeam_br
+veeam_one
+sshd
+pwuser
